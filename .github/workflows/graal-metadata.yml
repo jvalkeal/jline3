@@ -1,0 +1,78 @@
+name: Graal Metadata
+
+on:
+  push:
+    branches:
+      - graal-metadata-work1
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ ubuntu-latest, windows-latest ]
+    steps:
+      - uses: actions/checkout@v2
+      - uses: graalvm/setup-graalvm@v1
+        with:
+          version: 22.2.0
+          java-version: 11
+          components: native-image
+          set-java-home: true
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+      - name: Test with graal agent
+        run: |
+          ./mvnw clean "-Dsurefire.argLine=-agentlib:native-image-agent=config-output-dir=target/graal-metadata,experimental-conditional-config-part" package
+      - uses: actions/upload-artifact@v2
+        with:
+          name: graal-metadata-${{ matrix.os }}
+          retention-days: 1
+          path: |
+            */target/graal-metadata/*
+  generate:
+    runs-on: ubuntu-latest
+    needs: test
+    steps:
+      - uses: actions/checkout@v2
+      - uses: graalvm/setup-graalvm@v1
+        with:
+          version: 22.2.0
+          java-version: 11
+          components: native-image
+          set-java-home: true
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+      - uses: actions/download-artifact@v3
+        with:
+          name: graal-metadata-ubuntu-latest
+          path: ${{runner.temp}}/artifacts/graal-metadata-ubuntu-latest
+      - uses: actions/download-artifact@v3
+        with:
+          name: graal-metadata-windows-latest
+          path: ${{runner.temp}}/artifacts/graal-metadata-windows-latest
+      - name: Generate metadata
+        run: |
+          mkdir -p target/graal-metadata
+          $JAVA_HOME/bin/native-image-configure generate-conditional \
+            --user-code-filter=graal-metadata/jline-filter.json \
+            --class-name-filter=graal-metadata/test-class-filter.json \
+            --input-dir=${{runner.temp}}/artifacts/graal-metadata-ubuntu-latest/builtins/target/graal-metadata \
+            --input-dir=${{runner.temp}}/artifacts/graal-metadata-ubuntu-latest/reader/target/graal-metadata \
+            --input-dir=${{runner.temp}}/artifacts/graal-metadata-ubuntu-latest/style/target/graal-metadata \
+            --input-dir=${{runner.temp}}/artifacts/graal-metadata-ubuntu-latest/terminal-jansi/target/graal-metadata \
+            --input-dir=${{runner.temp}}/artifacts/graal-metadata-ubuntu-latest/terminal-jna/target/graal-metadata \
+            --input-dir=${{runner.temp}}/artifacts/graal-metadata-ubuntu-latest/terminal/target/graal-metadata \
+            --input-dir=${{runner.temp}}/artifacts/graal-metadata-windows-latest/builtins/target/graal-metadata \
+            --input-dir=${{runner.temp}}/artifacts/graal-metadata-windows-latest/reader/target/graal-metadata \
+            --input-dir=${{runner.temp}}/artifacts/graal-metadata-windows-latest/style/target/graal-metadata \
+            --input-dir=${{runner.temp}}/artifacts/graal-metadata-windows-latest/terminal-jansi/target/graal-metadata \
+            --input-dir=${{runner.temp}}/artifacts/graal-metadata-windows-latest/terminal-jna/target/graal-metadata \
+            --input-dir=${{runner.temp}}/artifacts/graal-metadata-windows-latest/terminal/target/graal-metadata \
+            --output-dir=target/graal-metadata
+      - uses: actions/upload-artifact@v2
+        with:
+          name: graal-metadata-generated
+          retention-days: 1
+          path: |
+            target/graal-metadata/*
